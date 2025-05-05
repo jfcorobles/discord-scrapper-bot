@@ -1,0 +1,14 @@
+discord-scraper-bot/
+├── commands/
+│   └── addurl.js           # Slash command para guardar nuevas URLs
+├── scrapers/
+│   ├── exampleSite.js      # Lógica de scraping personalizada por sitio
+│   └── anotherSite.js
+├── database/
+│   └── db.js               # Inicialización y funciones para SQLite
+├── scheduler/
+│   └── dailyJob.js         # Tarea diaria que ejecuta todos los scrapers
+├── config.json             # Configuración del bot (canal, token, etc.)
+├── .env                    # Discord token y otras variables secretas
+├── index.js                # Punto de entrada del bot
+└── package.json
