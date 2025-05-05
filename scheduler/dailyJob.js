@@ -7,7 +7,7 @@ require('dotenv').config();
 
 // Función para iniciar el trabajo diario
 const scheduleDailyJob = (client) => {
-  cron.schedule('* * * * *', async () => {
+  cron.schedule('0 8 * * *', async () => {
     console.log('Iniciando trabajo de scraping diario...');
 
     const urls = await getUrls(process.env.GUILD_ID);

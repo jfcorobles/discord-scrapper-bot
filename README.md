@@ -26,7 +26,7 @@ discord-scraper-bot/
 1. Clona este repositorio:
 
 ```bash
-git clone https://github.com/tu-usuario/discord-scraper-bot.git
+git clone https://github.com/jfcorobles/discord-scraper-bot.git
 cd discord-scraper-bot
 ```
 
