@@ -26,11 +26,38 @@ const createTable = () => {
     )
   `;
 
+    const queryYtsDrop = `DROP TABLE IF EXISTS yts_movies`;
+    const queryYts = `
+    CREATE TABLE IF NOT EXISTS yts_movies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        image TEXT
+    )
+    `;
+
     db.run(query, (err) => {
         if (err) {
-            console.error('Error al crear la tabla:', err.message);
+            console.error('Error al crear la tabla urls:', err.message);
         } else {
             console.log('Tabla "urls" creada o ya existe');
+        }
+    });
+
+    // We can just create it, sqlite ALTER table add column is limited, but since we are recreating/deleting, we can try dropping the old table first if we change schema
+    // Since we control this during dev, let's just make sure it's created. We will recreate it inside replaceYtsMovies as a precaution, or just rely on the new schema for new instances. 
+    // Para simplificar, si la db antigua me da error, lo más sano es dropearla on boot si falta la columna. Aquí asumiré que está bien o se borró db.sqlite.
+
+    // Mejor verificamos si la columna existe antes y alteramos, o sino, simplemente la creamos.
+    // Vamos a intentar hacer un ADD COLUMN, y si falla no pasa nada.
+    db.run(queryYts, (err) => {
+        if (err) {
+            console.error('Error al crear la tabla yts_movies:', err.message);
+        } else {
+            console.log('Tabla "yts_movies" creada o ya existe');
+            db.run(`ALTER TABLE yts_movies ADD COLUMN image TEXT`, (alterErr) => {
+                // Ignore error if column already exists
+            });
         }
     });
 };
@@ -111,9 +138,51 @@ const deleteUrlById = (id) => {
 // Llamar a la función para crear la tabla
 createTable();
 
+// Funciones para YTS
+const getYtsMovies = () => {
+    return new Promise((resolve, reject) => {
+        const query = `SELECT * FROM yts_movies`;
+        db.all(query, [], (err, rows) => {
+            if (err) {
+                console.error('Error al obtener las películas de YTS:', err.message);
+                reject(err);
+            } else {
+                resolve(rows);
+            }
+        });
+    });
+};
+
+const replaceYtsMovies = (movies) => {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run(`DELETE FROM yts_movies`, (err) => {
+                if (err) {
+                    console.error('Error al eliminar películas anteriores:', err.message);
+                    return reject(err);
+                }
+            });
+
+            const stmt = db.prepare(`INSERT INTO yts_movies (title, url, image) VALUES (?, ?, ?)`);
+            movies.forEach((movie) => {
+                stmt.run(movie.title, movie.url, movie.image);
+            });
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('Error al insertar nuevas películas:', err.message);
+                    return reject(err);
+                }
+                resolve();
+            });
+        });
+    });
+};
+
 module.exports = {
     addUrl,
     getUrls,
     updateLastChapter,
-    deleteUrlById
+    deleteUrlById,
+    getYtsMovies,
+    replaceYtsMovies
 };

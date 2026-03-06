@@ -1,7 +1,9 @@
+const { EmbedBuilder } = require('discord.js');
 const cron = require('node-cron');
 const { warOfCorpsesScrapper } = require('../scrapers/warOfCorpsesScrapper');
 const { chainsawManScapper } = require('../scrapers/chainsawManScapper');
-const { getUrls, updateLastChapter } = require('../database/db');
+const { ytsScraper } = require('../scrapers/ytsScraper');
+const { getUrls, updateLastChapter, getYtsMovies, replaceYtsMovies } = require('../database/db');
 const { sendMessageToChannel } = require('../utils/message');
 require('dotenv').config();
 
@@ -37,6 +39,50 @@ const scheduleDailyJob = (client) => {
       } catch (error) {
         console.error(`Error al procesar la URL ${url}:`, error);
       }
+    }
+
+    // YTS Scraper logic
+    try {
+      console.log('Verificando películas de YTS...');
+      const newYtsMovies = await ytsScraper();
+
+      if (newYtsMovies && newYtsMovies.length > 0) {
+        const oldYtsMovies = await getYtsMovies();
+
+        // Compare new movies vs old movies by URL or Title
+        const oldUrls = new Set(oldYtsMovies.map(m => m.url));
+        const newMoviesFound = newYtsMovies.filter(m => !oldUrls.has(m.url));
+
+        if (newMoviesFound.length > 0) {
+          console.log(`Se encontraron ${newMoviesFound.length} nuevas películas de YTS.`);
+
+          await sendMessageToChannel(client, process.env.GUILD_ID, `🎥 **¡Nuevas películas populares en YTS!** 🍿`);
+
+          for (const m of newMoviesFound) {
+            const embed = new EmbedBuilder()
+              .setColor('#2ecc71')
+              .setTitle(m.title)
+              .setURL(m.url);
+
+            if (m.image) {
+              embed.setImage(m.image);
+            }
+
+            // Note: our generic sendMessageToChannel takes a string right now, we might need to change it or pass an object.
+            // Let's pass the object directly and adjust utils/message.js if needed, or better yet since sendMessageToChannel uses channel.send(message),
+            // we can pass the object directly to it: await channel.send(message) works with strings and embed objects.
+            await sendMessageToChannel(client, process.env.GUILD_ID, { embeds: [embed] });
+          }
+
+          // Replace DB with new top 4
+          await replaceYtsMovies(newYtsMovies);
+          console.log('Base de datos de YTS actualizada.');
+        } else {
+          console.log('No hay nuevas películas en YTS. Las 4 populares son las mismas.');
+        }
+      }
+    } catch (error) {
+      console.error('Error al procesar YTS:', error);
     }
 
     console.log('Finalizando trabajo de scraping diario...');
