@@ -9,38 +9,59 @@ const cheerio = require('cheerio');
  * @param {number} lastChapter - El número del último capítulo registrado.
  * @returns {number|null} El nuevo capítulo disponible, o null si no hay un nuevo capítulo.
  */
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const warOfCorpsesScrapper = async (url, lastChapter) => {
+    const foundChapters = [];
+    let current = parseInt(lastChapter, 10);
+
     try {
-        // Hacer una solicitud GET a la URL
-        const ex = url + lastChapter;
-        const { data } = await axios.get(url + lastChapter, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 ...',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'es-ES,es;q=0.9',
-                'Referer': 'https://google.com',
+        while (true) {
+            console.log(`Verificando War of the Corpses: Capítulo ${current}...`);
+            try {
+                const { data } = await axios.get(url + current, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                        'Referer': 'https://qimanhwa.com/',
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    },
+                    timeout: 15000
+                });
+
+                const $ = cheerio.load(data);
+
+                // Si el título contiene el nombre del anime y el capítulo, es que la página cargó
+                const pageTitle = $('title').text().toLowerCase();
+                const hasChapterInTitle = pageTitle.includes(`chapter ${current}`) || pageTitle.includes(`capítulo ${current}`);
+                const isLocked = $('p').text().includes('This chapter is locked');
+
+                if (hasChapterInTitle && !isLocked) {
+                    console.log(`¡Capítulo ${current} encontrado y accesible!`);
+                    foundChapters.push(current);
+                    current++;
+
+                    // Delay de 10 minutos antes de buscar el siguiente capítulo
+                    console.log(`Esperando 10 minutos antes de buscar el capítulo ${current}...`);
+                    await delay(10 * 60 * 1000);
+                } else {
+                    console.log(`Capítulo ${current} no válido o bloqueado.`);
+                    break;
+                }
+            } catch (innerError) {
+                if (innerError.response && innerError.response.status === 403) {
+                    console.log(`Acceso denegado (403) para el capítulo ${current}. Posible protección anti-bot.`);
+                } else {
+                    console.log(`Error al acceder al capítulo ${current}: ${innerError.message}`);
+                }
+                break;
             }
-        });
-
-        // Cargar el HTML con Cheerio
-        const $ = cheerio.load(data);
-
-        // Buscar si el texto "This chapter is locked" está presente
-        const lockedText = $('p').text().includes('This chapter is locked');
-
-        // Si está bloqueado, retornamos null
-        if (lockedText) {
-            console.log('El capítulo está bloqueado.');
-            return null;
         }
-
-        // Devolver el número del capítulo disponible
-        console.log(`Nuevo capítulo encontrado: Capítulo ${lastChapter}`);
-        return lastChapter;
-
+        return foundChapters.length > 0 ? foundChapters : null;
     } catch (error) {
-        console.error('Error al scrapear el sitio:', error);
-        return null;
+        return foundChapters.length > 0 ? foundChapters : null;
     }
 };
 

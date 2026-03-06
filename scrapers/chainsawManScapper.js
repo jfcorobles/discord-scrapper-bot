@@ -9,42 +9,60 @@ const cheerio = require('cheerio');
  * @param {number} lastChapter - El número del último capítulo registrado.
  * @returns {number|null} El nuevo capítulo disponible, o null si no hay un nuevo capítulo.
  */
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const chainsawManScapper = async (url, lastChapter) => {
+    const foundChapters = [];
+    let current = parseInt(lastChapter, 10);
+
     try {
-        // Hacer una solicitud GET a la URL
-        const { data } = await axios.get(new URL(url).origin + '/', {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 ...',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'es-ES,es;q=0.9',
-                'Referer': 'https://google.com',
+        while (true) {
+            console.log(`Verificando Chainsaw Man: Capítulo ${current}...`);
+            try {
+                const { data } = await axios.get(url + current, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+                        'Referer': 'https://chainsawmann.com/',
+                        'Cache-Control': 'no-cache'
+                    },
+                    timeout: 15000
+                });
+
+                const $ = cheerio.load(data);
+
+                // Intento 1: Buscar en el título de la página
+                const pageTitle = $('title').text().toLowerCase();
+                const hasChapterInTitle = pageTitle.includes(`chapter ${current}`) || pageTitle.includes(`capítulo ${current}`);
+
+                // Intento 2: Buscar un encabezado común (por si acaso el ID cambió)
+                const headingText = $('h1, h2, #chapter-heading').text().toLowerCase();
+                const hasChapterInHeading = headingText.includes(`chapter ${current}`) || headingText.includes(`capítulo ${current}`);
+
+                if (hasChapterInTitle || hasChapterInHeading) {
+                    console.log(`¡Capítulo ${current} de Chainsaw Man encontrado!`);
+                    foundChapters.push(current);
+                    current++;
+
+                    console.log(`Esperando 10 minutos antes de buscar el siguiente...`);
+                    await delay(10 * 60 * 1000);
+                } else {
+                    console.log(`No se pudo confirmar el capítulo ${current} en la página.`);
+                    break;
+                }
+            } catch (innerError) {
+                if (innerError.response && innerError.response.status === 403) {
+                    console.log(`Acceso denegado (403) en Chainsaw Man para el capítulo ${current}.`);
+                } else {
+                    console.log(`Error al acceder al capítulo ${current}: ${innerError.message}`);
+                }
+                break;
             }
-        });
-
-        // Cargar el HTML con Cheerio
-        const $ = cheerio.load(data);
-
-        const chapterList = $('#Chapters_List ul li a');
-        if (!chapterList.length) return null;
-
-        // El primer <a> en esa lista es el capítulo más nuevo
-        const firstChapter = chapterList.first();
-        const chapterTitle = firstChapter.text().trim();
-
-        // Extraer número del capítulo
-        const match = chapterTitle.match(/Chapter (\d+)/i);
-        const chapterNumber = match ? parseInt(match[1], 10) : null;
-
-        if (!chapterNumber || chapterNumber != lastChapter)
-            return null;
-
-        // Devolver el número del capítulo disponible
-        console.log(`Nuevo capítulo encontrado: Capítulo ${lastChapter}`);
-        return lastChapter;
-
+        }
+        return foundChapters.length > 0 ? foundChapters : null;
     } catch (error) {
-        console.error('Error al scrapear el sitio:', error);
-        return null;
+        return foundChapters.length > 0 ? foundChapters : null;
     }
 };
 

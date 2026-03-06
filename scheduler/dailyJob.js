@@ -16,21 +16,23 @@ const scheduleDailyJob = (client) => {
       const { id, url, anime, last_chapter, guild_id } = urlData;
 
       try {
-        let newChapter = null;
+        let newChapters = null;
 
         if (anime === 'Chainsaw Man') {
-          newChapter = await chainsawManScapper(url, last_chapter);
+          newChapters = await chainsawManScapper(url, last_chapter);
         }
 
         if (anime === 'War of the Corpses') {
-          newChapter = await warOfCorpsesScrapper(url, last_chapter);
+          newChapters = await warOfCorpsesScrapper(url, last_chapter);
         }
 
-        if (newChapter) {
-          const message = `¡Nuevo episodio disponible para **${anime}**! Capítulo ${newChapter}.\n${url}${newChapter}`;
-
-          await sendMessageToChannel(client, guild_id, message);
-          await updateLastChapter(id, parseInt(newChapter, 10) + 1);
+        if (newChapters && Array.isArray(newChapters)) {
+          for (const ch of newChapters) {
+            const message = `¡Nuevo episodio disponible para **${anime}**! Capítulo ${ch}.\n${url}${ch}`;
+            await sendMessageToChannel(client, guild_id, message);
+            // Actualizamos la DB con el siguiente capítulo a buscar
+            await updateLastChapter(id, parseInt(ch, 10) + 1);
+          }
         }
       } catch (error) {
         console.error(`Error al procesar la URL ${url}:`, error);
