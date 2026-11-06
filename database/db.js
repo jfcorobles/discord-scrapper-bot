@@ -13,7 +13,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
-// Crear la tabla 'urls' si no existe
+// Crear tablas si no existen
 const createTable = () => {
     const query = `
     CREATE TABLE IF NOT EXISTS urls (
@@ -26,13 +26,33 @@ const createTable = () => {
     )
   `;
 
-    const queryYtsDrop = `DROP TABLE IF EXISTS yts_movies`;
     const queryYts = `
     CREATE TABLE IF NOT EXISTS yts_movies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         url TEXT NOT NULL,
         image TEXT
+    )
+    `;
+
+    const queryYtSeries = `
+    CREATE TABLE IF NOT EXISTS youtube_series (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        guild_id TEXT NOT NULL,
+        channel_handle TEXT NOT NULL,
+        series_name TEXT NOT NULL,
+        last_video_id TEXT
+    )
+    `;
+
+    const queryYtNotified = `
+    CREATE TABLE IF NOT EXISTS youtube_notified_videos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        video_id TEXT UNIQUE NOT NULL,
+        series_name TEXT,
+        title TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     `;
 
@@ -44,25 +64,33 @@ const createTable = () => {
         }
     });
 
-    // We can just create it, sqlite ALTER table add column is limited, but since we are recreating/deleting, we can try dropping the old table first if we change schema
-    // Since we control this during dev, let's just make sure it's created. We will recreate it inside replaceYtsMovies as a precaution, or just rely on the new schema for new instances. 
-    // Para simplificar, si la db antigua me da error, lo más sano es dropearla on boot si falta la columna. Aquí asumiré que está bien o se borró db.sqlite.
-
-    // Mejor verificamos si la columna existe antes y alteramos, o sino, simplemente la creamos.
-    // Vamos a intentar hacer un ADD COLUMN, y si falla no pasa nada.
     db.run(queryYts, (err) => {
         if (err) {
             console.error('Error al crear la tabla yts_movies:', err.message);
         } else {
             console.log('Tabla "yts_movies" creada o ya existe');
-            db.run(`ALTER TABLE yts_movies ADD COLUMN image TEXT`, (alterErr) => {
-                // Ignore error if column already exists
-            });
+            db.run(`ALTER TABLE yts_movies ADD COLUMN image TEXT`, () => {});
+        }
+    });
+
+    db.run(queryYtSeries, (err) => {
+        if (err) {
+            console.error('Error al crear la tabla youtube_series:', err.message);
+        } else {
+            console.log('Tabla "youtube_series" creada o ya existe');
+        }
+    });
+
+    db.run(queryYtNotified, (err) => {
+        if (err) {
+            console.error('Error al crear la tabla youtube_notified_videos:', err.message);
+        } else {
+            console.log('Tabla "youtube_notified_videos" creada o ya existe');
         }
     });
 };
 
-// Función para agregar una URL
+// Función para agregar una URL de manga/anime
 const addUrl = (userId, guildId, url, anime, chapter) => {
     return new Promise((resolve, reject) => {
         const query = `
@@ -76,13 +104,13 @@ const addUrl = (userId, guildId, url, anime, chapter) => {
                 reject(err);
             } else {
                 console.log(`URL guardada correctamente: ${anime} - ${url}`);
-                resolve(this.lastID); // Devuelve el ID de la nueva fila insertada
+                resolve(this.lastID);
             }
         });
     });
 };
 
-// Función para obtener URLs en base a user_id y guild_id
+// Función para obtener URLs en base a guild_id
 const getUrls = (guildId) => {
     return new Promise((resolve, reject) => {
         const query = `
@@ -95,7 +123,7 @@ const getUrls = (guildId) => {
                 console.error('Error al obtener las URLs:', err.message);
                 reject(err);
             } else {
-                resolve(rows);  // Devuelve las URLs encontradas
+                resolve(rows);
             }
         });
     });
@@ -135,7 +163,7 @@ const deleteUrlById = (id) => {
     });
 };
 
-// Llamar a la función para crear la tabla
+// Llamar a la función para crear tablas
 createTable();
 
 // Funciones para YTS
@@ -178,11 +206,109 @@ const replaceYtsMovies = (movies) => {
     });
 };
 
+// Funciones para YouTube
+const addYoutubeSeries = (userId, guildId, channelHandle, seriesName, lastVideoId = null) => {
+    return new Promise((resolve, reject) => {
+        const query = `
+            INSERT INTO youtube_series (user_id, guild_id, channel_handle, series_name, last_video_id)
+            VALUES (?, ?, ?, ?, ?)
+        `;
+        db.run(query, [userId, guildId, channelHandle, seriesName, lastVideoId], function (err) {
+            if (err) {
+                console.error('Error al guardar serie de YouTube:', err.message);
+                reject(err);
+            } else {
+                console.log(`Serie de YouTube registrada: ${seriesName} (${channelHandle})`);
+                resolve(this.lastID);
+            }
+        });
+    });
+};
+
+const getYoutubeSeries = (guildId) => {
+    return new Promise((resolve, reject) => {
+        const query = `SELECT * FROM youtube_series WHERE guild_id = ?`;
+        db.all(query, [guildId], (err, rows) => {
+            if (err) {
+                console.error('Error al obtener series de YouTube:', err.message);
+                reject(err);
+            } else {
+                resolve(rows);
+            }
+        });
+    });
+};
+
+const deleteYoutubeSeriesById = (id) => {
+    return new Promise((resolve, reject) => {
+        const query = `DELETE FROM youtube_series WHERE id = ?`;
+        db.run(query, [id], function (err) {
+            if (err) {
+                console.error('Error al eliminar serie de YouTube:', err.message);
+                reject(err);
+            } else {
+                resolve();
+            }
+        });
+    });
+};
+
+const updateYoutubeLastVideo = (id, lastVideoId) => {
+    return new Promise((resolve, reject) => {
+        const query = `UPDATE youtube_series SET last_video_id = ? WHERE id = ?`;
+        db.run(query, [lastVideoId, id], function (err) {
+            if (err) {
+                console.error('Error al actualizar último video de YouTube:', err.message);
+                reject(err);
+            } else {
+                resolve();
+            }
+        });
+    });
+};
+
+const isYoutubeVideoNotified = (videoId) => {
+    return new Promise((resolve, reject) => {
+        const query = `SELECT id FROM youtube_notified_videos WHERE video_id = ?`;
+        db.get(query, [videoId], (err, row) => {
+            if (err) {
+                console.error('Error al verificar video de YouTube notificado:', err.message);
+                reject(err);
+            } else {
+                resolve(!!row);
+            }
+        });
+    });
+};
+
+const markYoutubeVideoNotified = (videoId, seriesName, title) => {
+    return new Promise((resolve, reject) => {
+        const query = `
+            INSERT OR IGNORE INTO youtube_notified_videos (video_id, series_name, title)
+            VALUES (?, ?, ?)
+        `;
+        db.run(query, [videoId, seriesName, title], function (err) {
+            if (err) {
+                console.error('Error al marcar video de YouTube como notificado:', err.message);
+                reject(err);
+            } else {
+                resolve();
+            }
+        });
+    });
+};
+
 module.exports = {
     addUrl,
     getUrls,
     updateLastChapter,
     deleteUrlById,
     getYtsMovies,
-    replaceYtsMovies
+    replaceYtsMovies,
+    addYoutubeSeries,
+    getYoutubeSeries,
+    deleteYoutubeSeriesById,
+    updateYoutubeLastVideo,
+    isYoutubeVideoNotified,
+    markYoutubeVideoNotified,
 };

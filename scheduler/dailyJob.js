@@ -3,7 +3,17 @@ const cron = require('node-cron');
 const { warOfCorpsesScrapper } = require('../scrapers/warOfCorpsesScrapper');
 const { chainsawManScapper } = require('../scrapers/chainsawManScapper');
 const { ytsScraper } = require('../scrapers/ytsScraper');
-const { getUrls, updateLastChapter, getYtsMovies, replaceYtsMovies } = require('../database/db');
+const { getChannelVideos, filterVideosBySeries } = require('../scrapers/youtubeScraper');
+const {
+  getUrls,
+  updateLastChapter,
+  getYtsMovies,
+  replaceYtsMovies,
+  getYoutubeSeries,
+  updateYoutubeLastVideo,
+  isYoutubeVideoNotified,
+  markYoutubeVideoNotified,
+} = require('../database/db');
 const { sendMessageToChannel } = require('../utils/message');
 require('dotenv').config();
 
@@ -12,6 +22,7 @@ const scheduleDailyJob = (client) => {
   cron.schedule('0 8 * * *', async () => {
     console.log('Iniciando trabajo de scraping diario...');
 
+    // 1. Scraping de Manga / Manhwa
     const urls = await getUrls(process.env.GUILD_ID);
 
     for (const urlData of urls) {
@@ -41,7 +52,7 @@ const scheduleDailyJob = (client) => {
       }
     }
 
-    // YTS Scraper logic
+    // 2. YTS Scraper logic
     try {
       console.log('Verificando películas de YTS...');
       const newYtsMovies = await ytsScraper();
@@ -68,9 +79,6 @@ const scheduleDailyJob = (client) => {
               embed.setImage(m.image);
             }
 
-            // Note: our generic sendMessageToChannel takes a string right now, we might need to change it or pass an object.
-            // Let's pass the object directly and adjust utils/message.js if needed, or better yet since sendMessageToChannel uses channel.send(message),
-            // we can pass the object directly to it: await channel.send(message) works with strings and embed objects.
             await sendMessageToChannel(client, process.env.GUILD_ID, { embeds: [embed] });
           }
 
@@ -83,6 +91,62 @@ const scheduleDailyJob = (client) => {
       }
     } catch (error) {
       console.error('Error al procesar YTS:', error);
+    }
+
+    // 3. YouTube Scraper logic
+    try {
+      console.log('Verificando series de YouTube...');
+      const ytSeries = await getYoutubeSeries(process.env.GUILD_ID);
+
+      if (ytSeries && ytSeries.length > 0) {
+        // Agrupar por canal para minimizar peticiones
+        const channelMap = new Map();
+        for (const item of ytSeries) {
+          if (!channelMap.has(item.channel_handle)) {
+            channelMap.set(item.channel_handle, []);
+          }
+          channelMap.get(item.channel_handle).push(item);
+        }
+
+        for (const [channelHandle, seriesList] of channelMap.entries()) {
+          const videos = await getChannelVideos(channelHandle);
+          if (!videos || videos.length === 0) continue;
+
+          for (const s of seriesList) {
+            const matches = filterVideosBySeries(videos, s.series_name);
+            if (matches.length === 0) continue;
+
+            for (const v of matches) {
+              const alreadyNotified = await isYoutubeVideoNotified(v.id);
+              if (!alreadyNotified) {
+                console.log(`¡Nuevo video encontrado para ${s.series_name}: ${v.title}!`);
+
+                const embed = new EmbedBuilder()
+                  .setColor('#FF0000')
+                  .setTitle(v.title)
+                  .setURL(v.url)
+                  .setAuthor({
+                    name: `YouTube: ${s.channel_handle}`,
+                    url: `https://www.youtube.com/${s.channel_handle.startsWith('@') ? s.channel_handle : '@' + s.channel_handle}`
+                  })
+                  .setFooter({ text: `Serie monitoreada: ${s.series_name}` });
+
+                if (v.thumbnail) {
+                  embed.setImage(v.thumbnail);
+                }
+
+                await sendMessageToChannel(client, process.env.GUILD_ID, `🔴 **¡Nuevo video disponible para la serie "${s.series_name}"!** 🎬`);
+                await sendMessageToChannel(client, process.env.GUILD_ID, { embeds: [embed] });
+
+                await markYoutubeVideoNotified(v.id, s.series_name, v.title);
+                await updateYoutubeLastVideo(s.id, v.id);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error al procesar series de YouTube:', error);
     }
 
     console.log('Finalizando trabajo de scraping diario...');
